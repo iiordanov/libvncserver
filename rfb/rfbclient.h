@@ -228,6 +228,8 @@ typedef void (*GotBitmapProc)(struct _rfbClient* client, const uint8_t* buffer, 
 typedef rfbBool (*GotJpegProc)(struct _rfbClient* client, const uint8_t* buffer, int length, int x, int y, int w, int h);
 typedef rfbBool (*LockWriteToTLSProc)(struct _rfbClient* client);
 typedef rfbBool (*UnlockWriteToTLSProc)(struct _rfbClient* client);
+typedef int (*SslCertificateVerifyCallbackProc)(struct _rfbClient* client, char* issuer, char* common_name,
+        char* fingerprint_sha256, char* fingerprint_sha512, int pday, int psec);
 
 #ifdef LIBVNCSERVER_HAVE_SASL
 typedef char* (*GetUserProc)(struct _rfbClient* client);
@@ -450,6 +452,7 @@ typedef struct _rfbClient {
 
 #endif
 #endif
+    SslCertificateVerifyCallbackProc SslCertificateVerifyCallback;
 } rfbClient;
 
 /* cursor.c */

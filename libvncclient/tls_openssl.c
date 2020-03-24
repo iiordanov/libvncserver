@@ -262,6 +262,66 @@ load_crls_from_file(char *file, SSL_CTX *ssl_ctx)
     return FALSE;
 }
 
+static char *get_human_readable_fingerprint(uint8_t *raw_fingerprint, uint32_t len) {
+  uint32_t buflen = len*4;
+  char *fingerprint_string = malloc(buflen);
+  int pos = 0, i;
+
+  for (i = 0; i < len; ++i) {
+      if (i > 0) {
+          pos += snprintf(fingerprint_string + pos, buflen - pos, ":");
+      }
+      pos += snprintf(fingerprint_string + pos, buflen - pos, "%02X", raw_fingerprint[i]);
+  }
+  return fingerprint_string;
+}
+
+static int cert_verify_callback(X509_STORE_CTX *ctx, void *arg) {
+  rfbClient *client = (rfbClient *)arg;
+
+  // If cert is valid, return success.
+  int ok = X509_verify_cert(ctx);
+  if (ok) {
+    return 1;
+  }
+
+  // Get the certificate
+  X509 *cert = X509_STORE_CTX_get_current_cert(ctx);
+
+  // Obtain issuer name
+  char *issuer_buf = malloc(1024);
+  X509_NAME *issuer_name = X509_get_issuer_name(cert);
+  X509_NAME_get_text_by_NID(issuer_name, NID_commonName, issuer_buf, 1023);
+
+  // Obtain common name
+  char *common_name_buf = malloc(1024);
+  X509_NAME *subject_name = X509_get_subject_name(cert);
+  X509_NAME_get_text_by_NID(subject_name, NID_commonName, common_name_buf, 1023);
+
+  // Determine how many days and seconds the cert is valid for
+  const ASN1_TIME *valid_until = X509_get0_notAfter(cert);
+  int pday = 0, psec = 0;
+  ASN1_TIME_diff(&pday, &psec, NULL, valid_until);
+
+  // Get human readable strings representing the SHA 256 and 512 digests.
+  uint8_t fingerprint_sha256[256];
+  uint32_t len256;
+  X509_digest(cert, EVP_sha256(), fingerprint_sha256, &len256);
+  char *fingerprint_sha256_str = get_human_readable_fingerprint(fingerprint_sha256, len256);
+  uint8_t fingerprint_sha512[512];
+  uint32_t len512;
+  X509_digest(cert, EVP_sha512(), fingerprint_sha512, &len512);
+  char *fingerprint_sha512_str = get_human_readable_fingerprint(fingerprint_sha512, len512);
+
+  int res = client->SslCertificateVerifyCallback(client, issuer_buf, common_name_buf, fingerprint_sha256_str,
+                                                 fingerprint_sha512_str, pday, psec);
+  free(common_name_buf);
+  free(issuer_buf);
+  free(fingerprint_sha256_str);
+  free(fingerprint_sha512_str);
+  return res;
+}
+
 static SSL *
 open_ssl_connection (rfbClient *client, int sockfd, rfbBool anonTLS, rfbCredential *cred)
 {
@@ -283,7 +343,11 @@ open_ssl_connection (rfbClient *client, int sockfd, rfbBool anonTLS, rfbCredenti
   if (!anonTLS)
   {
     verify_crls = cred->x509Credential.x509CrlVerifyMode;
-    if (cred->x509Credential.x509CACertFile)
+
+    if (client->SslCertificateVerifyCallback)
+    {
+      SSL_CTX_set_cert_verify_callback(ssl_ctx, cert_verify_callback, (void *)client);
+    } else if (cred->x509Credential.x509CACertFile)
     {
       if (!SSL_CTX_load_verify_locations(ssl_ctx, cred->x509Credential.x509CACertFile, NULL))
       {
