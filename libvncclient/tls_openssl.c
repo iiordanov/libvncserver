@@ -130,8 +130,8 @@ ssl_errno (SSL *ssl, int ret)
 		//d(printf ("ssl_errno: SSL_ERROR_WANT_[READ,WRITE]\n"));
 		return EAGAIN;
 	case SSL_ERROR_SYSCALL:
-		//d(printf ("ssl_errno: SSL_ERROR_SYSCALL\n"));
-		return EINTR;
+		printf ("ssl_errno: SSL_ERROR_SYSCALL\n");
+		return EAGAIN;
 	case SSL_ERROR_SSL:
 		//d(printf ("ssl_errno: SSL_ERROR_SSL  <-- very useful error...riiiiight\n"));
 		return EINTR;
@@ -447,6 +447,7 @@ open_ssl_connection (rfbClient *client, int sockfd, rfbBool anonTLS, rfbCredenti
     }
   } while( n != 1 && finished != 1 );
 
+  SSL_set_mode(ssl, SSL_MODE_AUTO_RETRY);
   X509_VERIFY_PARAM_free(param);
   return ssl;
 
@@ -694,6 +695,7 @@ ReadFromTLS(rfbClient* client, char *out, unsigned int n)
 {
   ssize_t ret;
 
+  ERR_clear_error();
   ret = SSL_read (client->tlsSession, out, n);
 
   if (ret >= 0)
@@ -717,7 +719,7 @@ WriteToTLS(rfbClient* client, const char *buf, unsigned int n)
 
   while (offset < n)
   {
-
+    ERR_clear_error();
     ret = SSL_write (client->tlsSession, buf + offset, (size_t)(n-offset));
 
     if (ret < 0)
