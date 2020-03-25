@@ -116,8 +116,14 @@ static rfbBool InitLockingCb() { return TRUE; }
 #endif
 
 static int
-ssl_error_to_errno (int ssl_error)
+ssl_error_to_errno (int ssl_error, int error_sslok)
 {
+  static int numConsecutiveSslOkErrors = 0;
+  // Reset the counter for consecutive sslok errors if error_sslok is false
+  if (error_sslok == 0) {
+    numConsecutiveSslOkErrors = 0;
+  }
+
 	switch (ssl_error) {
 	case SSL_ERROR_NONE:
 		return 0;
@@ -131,6 +137,10 @@ ssl_error_to_errno (int ssl_error)
 		return EAGAIN;
 	case SSL_ERROR_SYSCALL:
 		//d(printf ("ssl_errno: SSL_ERROR_SYSCALL\n"));
+    if (error_sslok == 1 && numConsecutiveSslOkErrors <= 5) {
+      numConsecutiveSslOkErrors++;
+      return EAGAIN;
+    }
 		return EINTR;
 	case SSL_ERROR_SSL:
 		//d(printf ("ssl_errno: SSL_ERROR_SSL  <-- very useful error...riiiiight\n"));
@@ -259,6 +269,19 @@ static char *get_human_readable_fingerprint(uint8_t *raw_fingerprint, uint32_t l
       pos += snprintf(fingerprint_string + pos, buflen - pos, "%02X", raw_fingerprint[i]);
   }
   return fingerprint_string;
+}
+
+static int is_error_sslok(SSL *ssl, unsigned long e) {
+    int ret = 0;
+    const char *sslError;
+    char buf[1024];
+    if (e == SSL_ERROR_SYSCALL) {
+        sslError = SSL_state_string(ssl);
+        if (strncmp(sslError, "SSLOK", 5) == 0) {
+            ret = 1;
+        }
+    }
+    return ret;
 }
 
 static int cert_verify_callback(X509_STORE_CTX *ctx, void *arg) {
@@ -432,6 +455,7 @@ open_ssl_connection (rfbClient *client, int sockfd, rfbBool anonTLS, rfbCredenti
     }
   } while( n != 1 && finished != 1 );
 
+  SSL_set_mode(ssl, SSL_MODE_AUTO_RETRY);
   X509_VERIFY_PARAM_free(param);
   return ssl;
 
@@ -681,18 +705,21 @@ ReadFromTLS(rfbClient* client, char *out, unsigned int n)
 {
   int ret = 0;
   int ssl_error = SSL_ERROR_NONE;
+  int error_sslok = 0;
 
   LOCK(client->tlsRwMutex);
   ret = SSL_read (client->tlsSession, out, n);
 
-  if (ret < 0)
+  if (ret < 0) {
       ssl_error = SSL_get_error(client->tlsSession, ret);
+      error_sslok = is_error_sslok(client->tlsSession, ssl_error);
+  }
   UNLOCK(client->tlsRwMutex);
 
   if (ret >= 0)
     return ret;
   else {
-    errno = ssl_error_to_errno(ssl_error);
+    errno = ssl_error_to_errno(ssl_error, error_sslok);
     if (errno != EAGAIN) {
       rfbClientLog("Error reading from TLS: -.\n");
     }
@@ -707,20 +734,23 @@ WriteToTLS(rfbClient* client, const char *buf, unsigned int n)
   unsigned int offset = 0;
   int ret = 0;
   int ssl_error = SSL_ERROR_NONE;
+  int error_sslok = 0;
 
   while (offset < n)
   {
     LOCK(client->tlsRwMutex);
     ret = SSL_write (client->tlsSession, buf + offset, (size_t)(n-offset));
 
-    if (ret < 0)
-      ssl_error = SSL_get_error (client->tlsSession, ret);
+    if (ret < 0) {
+      ssl_error = SSL_get_error(client->tlsSession, ret);
+      error_sslok = is_error_sslok(client->tlsSession, ssl_error);
+    }
     UNLOCK(client->tlsRwMutex);
 
     if (ret == 0) continue;
     if (ret < 0)
     {
-      errno = ssl_error_to_errno(ssl_error);
+      errno = ssl_error_to_errno(ssl_error, error_sslok);
       if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
       rfbClientLog("Error writing to TLS: -\n");
       return -1;
