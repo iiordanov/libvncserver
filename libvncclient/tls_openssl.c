@@ -118,7 +118,11 @@ dyn_destroy_function(struct CRYPTO_dynlock_value *l, const char *file, int line)
 static int
 ssl_errno (SSL *ssl, int ret)
 {
-	switch (SSL_get_error (ssl, ret)) {
+	char *sslError;
+	char buf[1024];
+	unsigned long e = SSL_get_error (ssl, ret);
+	ERR_error_string_n(e, buf, 1023);
+	switch (e) {
 	case SSL_ERROR_NONE:
 		return 0;
 	case SSL_ERROR_ZERO_RETURN:
@@ -130,8 +134,13 @@ ssl_errno (SSL *ssl, int ret)
 		//d(printf ("ssl_errno: SSL_ERROR_WANT_[READ,WRITE]\n"));
 		return EAGAIN;
 	case SSL_ERROR_SYSCALL:
-		printf ("ssl_errno: SSL_ERROR_SYSCALL\n");
-		return EAGAIN;
+		sslError = SSL_state_string(ssl);
+		printf ("ssl_errno: SSL_ERROR_SYSCALL: %s, state string: %s\n", buf, sslError);
+		if (strncmp(sslError, "SSLOK", 5) == 0) {
+			return EAGAIN;
+		} else {
+			return EINTR;
+		}
 	case SSL_ERROR_SSL:
 		//d(printf ("ssl_errno: SSL_ERROR_SSL  <-- very useful error...riiiiight\n"));
 		return EINTR;
@@ -717,6 +726,13 @@ WriteToTLS(rfbClient* client, const char *buf, unsigned int n)
   unsigned int offset = 0;
   ssize_t ret;
 
+  if (client->LockWriteToTLS) {
+    if (!client->LockWriteToTLS(client)) {
+      rfbClientLog("Callback to get lock in WriteToTLS() failed\n");
+      return -1;
+    }
+  }
+
   while (offset < n)
   {
     ERR_clear_error();
@@ -729,10 +745,21 @@ WriteToTLS(rfbClient* client, const char *buf, unsigned int n)
     if (ret < 0)
     {
       if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
-      rfbClientLog("Error writing to TLS: -\n");
+      printf("Error writing to TLS: -\n");
+      if (client->UnlockWriteToTLS) {
+        if (!client->UnlockWriteToTLS(client)) {
+          rfbClientLog("Callback to unlock WriteToTLS() failed\n");
+        }
+      }
       return -1;
     }
     offset += (unsigned int)ret;
+  }
+
+  if (client->UnlockWriteToTLS) {
+    if (!client->UnlockWriteToTLS(client)) {
+      rfbClientLog("Callback to unlock WriteToTLS() failed\n");
+    }
   }
   return offset;
 }
