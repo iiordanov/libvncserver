@@ -474,6 +474,8 @@ typedef struct _rfbClient {
 	 */
 	MUTEX(tlsRwMutex);
     SslCertificateVerifyCallbackProc SslCertificateVerifyCallback;
+    int instance;
+    int maintainConnection;
 } rfbClient;
 
 /* cursor.c */
