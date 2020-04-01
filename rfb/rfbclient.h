@@ -453,6 +453,8 @@ typedef struct _rfbClient {
 #endif
 #endif
     SslCertificateVerifyCallbackProc SslCertificateVerifyCallback;
+    int instance;
+    int maintainConnection;
 } rfbClient;
 
 /* cursor.c */
