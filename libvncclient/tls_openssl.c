@@ -64,6 +64,7 @@ typedef SSIZE_T ssize_t;
 
 static rfbBool rfbTLSInitialized = FALSE;
 static MUTEX_TYPE *mutex_buf = NULL;
+static int numConsecutiveSslOkErrors = 0;
 
 struct CRYPTO_dynlock_value {
 	MUTEX_TYPE mutex;
@@ -124,6 +125,7 @@ ssl_errno (SSL *ssl, int ret)
 	ERR_error_string_n(e, buf, 1023);
 	switch (e) {
 	case SSL_ERROR_NONE:
+    numConsecutiveSslOkErrors = 0;
 		return 0;
 	case SSL_ERROR_ZERO_RETURN:
 		/* this one does not map well at all */
@@ -132,11 +134,13 @@ ssl_errno (SSL *ssl, int ret)
 	case SSL_ERROR_WANT_READ:   /* non-fatal; retry */
 	case SSL_ERROR_WANT_WRITE:  /* non-fatal; retry */
 		//d(printf ("ssl_errno: SSL_ERROR_WANT_[READ,WRITE]\n"));
+    numConsecutiveSslOkErrors = 0;
 		return EAGAIN;
 	case SSL_ERROR_SYSCALL:
 		sslError = SSL_state_string(ssl);
 		printf ("ssl_errno: SSL_ERROR_SYSCALL: %s, state string: %s\n", buf, sslError);
-		if (strncmp(sslError, "SSLOK", 5) == 0) {
+		if (strncmp(sslError, "SSLOK", 5) == 0 && numConsecutiveSslOkErrors <= 5) {
+      numConsecutiveSslOkErrors++;
 			return EAGAIN;
 		} else {
 			return EINTR;
