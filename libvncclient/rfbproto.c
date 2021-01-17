@@ -1063,6 +1063,7 @@ InitialiseRFBConnection(rfbClient* client)
         if (!HandleVncAuth(client)) return FALSE;
         break;
 
+      case rfbVeNCryptPlain:
       case rfbVeNCryptTLSPlain:
       case rfbVeNCryptX509Plain:
         if (!HandlePlainAuth(client)) return FALSE;
