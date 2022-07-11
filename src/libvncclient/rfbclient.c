@@ -1073,7 +1073,7 @@ InitialiseRFBConnection(rfbClient* client)
 #endif /* LIBVNCSERVER_HAVE_SASL */
 
   case rfbUltraMSLogonII:
-    if (!HandleUltraMSLogonIIAuth(client)) return FALSE;
+    if (!HandleMSLogonAuth(client)) return FALSE;
     break;
 
   case rfbMSLogon:
