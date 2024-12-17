@@ -1715,6 +1715,10 @@ SendExtDesktopSize(rfbClient* client, uint16_t width, uint16_t height)
     sdm.width = rfbClientSwap16IfLE(width);
     sdm.height = rfbClientSwap16IfLE(height);
     sdm.numberOfScreens = 1;
+    screen.x = client->screen.x;
+    screen.y = client->screen.y;
+    screen.id = client->screen.id;
+    screen.flags = client->screen.flags;
     screen.width = rfbClientSwap16IfLE(width);
     screen.height = rfbClientSwap16IfLE(height);
 
@@ -2117,7 +2121,6 @@ HandleRFBServerMessage(rfbClient* client)
         if (!ReadFromRFBServer(client, ((char *)&eds), sz_rfbExtDesktopSizeMsg)) {
           return FALSE;
         }
-
         screens = eds.numberOfScreens;
         for (loop=0; loop < screens; loop++)
         {
@@ -2131,7 +2134,7 @@ HandleRFBServerMessage(rfbClient* client)
           }
         }
 
-        if (!invalidScreen && (client->width != rect.r.w || client->height != rect.r.h)) {
+        if (!invalidScreen) {
           if(!ResizeClientBuffer(client, rect.r.w, rect.r.h)) {
             return FALSE;
           }
